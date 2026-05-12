@@ -439,7 +439,7 @@
   <header>
     <div class="badge">Engenharia de Dados</div>
     <h1><span>Channel</span></h1>
-    <p class="subtitle">Matriz Bruta · Geração Multi-Boutique · ADI & PO Automático</p>
+    <p class="subtitle">Matriz Bruta · Geração Multi-Boutique · Ordenação Simétrica 1:1</p>
   </header>
 
   <div class="card">
@@ -482,8 +482,8 @@
         <div class="step" id="s2"><span class="dot"></span> Identificando Cabeçalhos e Índices</div>
         <div class="step" id="s3"><span class="dot"></span> Limpeza Estrutural e Chaves</div>
         <div class="step" id="s4"><span class="dot"></span> Merge Pandas-like (Mult ↔ Invoice)</div>
-        <div class="step" id="s5"><span class="dot"></span> Agrupando ADI por Boutique</div>
-        <div class="step" id="s6"><span class="dot"></span> Agrupando PO por Boutique</div>
+        <div class="step" id="s5"><span class="dot"></span> Sincronizando Matrizes 1:1 e Ordenando</div>
+        <div class="step" id="s6"><span class="dot"></span> Agrupando ADI e PO por Boutique</div>
         <div class="step" id="s7"><span class="dot"></span> Finalizando Arquivos</div>
       </div>
     </div>
@@ -742,8 +742,9 @@ async function processData() {
     let invHeader = rawInv[0];
     let invData = rawInv.slice(1);
 
-    setStep(4, 60); await sleep(50);
+    setStep(4, 50); await sleep(50);
     
+    // Geração da KeyBase
     const rankData = (dataset, keyFn) => {
       let counts = {};
       dataset.forEach(row => {
@@ -757,109 +758,155 @@ async function processData() {
     rankData(validMult, r => buildKey(r[idxProduto], r[idxBoutique], r[idxQtde]));
     rankData(invData, r => buildKey(r[10], r[9], r[27]));
 
-    let lookupInv = {};
-    invData.forEach(r => { lookupInv[r._finalKey] = r[23]; });
+    // ========================================================================
+    // 5. CRIAÇÃO DO MEGA-OBJETO (Sincronização Absoluta 1:1) E ORDENAÇÃO
+    // ========================================================================
+    setStep(5, 65); await sleep(50);
 
+    let lookupInvFull = {};
+    invData.forEach(r => { lookupInvFull[r._finalKey] = r; });
+
+    let mergedData = [];
     let missingRows = [];
     let foundCount = 0;
 
-    validMult.forEach(row => {
-      let barcode = lookupInv[row._finalKey];
-      let currentEan = cleanStr(row[idxEan]);
+    // FASE 1: Merge Mult com Invoice
+    validMult.forEach(rMult => {
+      let rInv = lookupInvFull[rMult._finalKey] || null;
+      if (rInv) rInv._processed = true;
+
+      // Resgate do EAN Missing no Mult
+      let currentEan = cleanStr(rMult[idxEan]);
       if (!currentEan || currentEan === 'NAN') {
+        let barcode = rInv ? rInv[23] : undefined;
         if (barcode !== undefined && barcode !== '') {
-          row[idxEan] = barcode;
+          rMult[idxEan] = barcode;
           foundCount++;
         } else {
-          missingRows.push({ ITEM: row[idxItem], PRODUTO: row[idxProduto], Chave: row._finalKey });
+          missingRows.push({ ITEM: rMult[idxItem], PRODUTO: rMult[idxProduto], Chave: rMult._finalKey });
         }
       } else {
         foundCount++;
       }
+
+      mergedData.push({ mult: rMult, inv: rInv });
+    });
+
+    // FASE 2: Resgata órfãos da Invoice (Evita perda de dados da Invoice)
+    invData.forEach(rInv => {
+      if (!rInv._processed) {
+        mergedData.push({ mult: null, inv: rInv });
+      }
+    });
+
+    // FASE 3: ORDENAÇÃO MATEMÁTICA
+    // Ordena pela coluna ADICAO (ASC) e depois LINHA (ASC) do Mult. 
+    // Órfãos da Invoice ficam no final.
+    mergedData.sort((a, b) => {
+      let mA = a.mult;
+      let mB = b.mult;
+      
+      if (!mA && mB) return 1;
+      if (mA && !mB) return -1;
+      if (!mA && !mB) return 0;
+
+      let adA = String(mA[idxAd] || '');
+      let adB = String(mB[idxAd] || '');
+      let cmpAd = adA.localeCompare(adB, undefined, {numeric: true});
+      if (cmpAd !== 0) return cmpAd;
+
+      let itemA = String(mA[idxItem] || '');
+      let itemB = String(mB[idxItem] || '');
+      return itemA.localeCompare(itemB, undefined, {numeric: true});
     });
 
     // ========================================================================
-    // 5. AGRUPAMENTO DO ADI POR BOUTIQUE (Coluna G do Mult Original -> índice idxBoutique)
+    // 6. AGRUPAMENTO SIMULTÂNEO (Garante ADI e PO Exatamente Iguais)
     // ========================================================================
-    setStep(5, 75); await sleep(50);
+    setStep(6, 80); await sleep(50);
     
     let adiGroups = {};
+    let poGroups = {};
     let totalAdiRows = 0;
+    let totalPoRows = 0;
 
-    validMult.forEach(r => {
-      const boutiqueRealName = cleanFileName(r[idxBoutique]);
-      const groupName = boutiqueRealName || 'GERAL'; // Fallback se estiver vazio
+    let finalMultAoA = [headerMult];
+
+    mergedData.forEach(pair => {
+      let rM = pair.mult;
+      let rI = pair.inv;
+
+      let groupName = 'GERAL';
+      if (rM) {
+        groupName = cleanFileName(rM[idxBoutique]) || 'GERAL';
+      } else if (rI) {
+        groupName = cleanFileName(rI[9]) || 'GERAL';
+      }
 
       if (!adiGroups[groupName]) {
         adiGroups[groupName] = [];
-      }
-
-      adiGroups[groupName].push({
-        'ADICAO':      r[idxAd], 
-        'LINHA':       r[idxItem], 
-        'CODIGO':      r[idxProduto], 
-        'NCM':         r[idxNcm], 
-        'QTDE':        r[idxQtde], 
-        'FOB':         r[idxUnit], 
-        'FRETE':       r[idxFrete], 
-        'SEGURO':      r[idxSeguro], 
-        'TX SISCOMEX': r[idxTxSis], 
-        'AFRMM':       r[idxAfrmm], 
-        'CAPATAZIA':   0.00, 
-        'TAXA':        1.00
-      });
-      totalAdiRows++;
-    });
-
-    // ========================================================================
-    // 6. AGRUPAMENTO DO PO POR BOUTIQUE (Coluna J da Invoice -> índice 9)
-    // ========================================================================
-    setStep(6, 85); await sleep(50);
-    
-    let poGroups = {};
-    let totalPoRows = 0;
-
-    invData.forEach(r => {
-      const boutiqueRealName = cleanFileName(r[9]);
-      const groupName = boutiqueRealName || 'GERAL'; 
-
-      if (!poGroups[groupName]) {
         poGroups[groupName] = [];
       }
 
-      poGroups[groupName].push({
-        'Barcode':      r[23] || '',
-        'Quantity':     r[27] || '',
-        'Batch Number': 'DEF_FA1',
-        'Unit Price':   r[29] || '',
-        'Season':       r[36] || '',
-        'SerialNumber': r[37] || '',
-        'PalletId':     r[42] || ''
-      });
-      totalPoRows++;
+      // Constrói ADI
+      if (rM) {
+        finalMultAoA.push(rM.slice(0, headerMult.length)); // Adiciona ao Mult Tratado para ficar ordenado também
+        adiGroups[groupName].push({
+          'ADICAO':      rM[idxAd], 
+          'LINHA':       rM[idxItem], 
+          'CODIGO':      rM[idxProduto], 
+          'NCM':         rM[idxNcm], 
+          'QTDE':        rM[idxQtde], 
+          'FOB':         rM[idxUnit], 
+          'FRETE':       rM[idxFrete], 
+          'SEGURO':      rM[idxSeguro], 
+          'TX SISCOMEX': rM[idxTxSis], 
+          'AFRMM':       rM[idxAfrmm], 
+          'CAPATAZIA':   0.00, 
+          'TAXA':        1.00
+        });
+        totalAdiRows++;
+      } else {
+        adiGroups[groupName].push({
+          'ADICAO': '', 'LINHA': '', 'CODIGO': '', 'NCM': '', 'QTDE': '',
+          'FOB': '', 'FRETE': '', 'SEGURO': '', 'TX SISCOMEX': '', 'AFRMM': '',
+          'CAPATAZIA': '', 'TAXA': ''
+        });
+      }
+
+      // Constrói PO Sincronizado
+      if (rI) {
+        poGroups[groupName].push({
+          'Barcode':      rI[23] !== undefined ? rI[23] : '',
+          'Quantity':     rI[27] !== undefined ? rI[27] : '',
+          'Batch Number': 'DEF_FA1',
+          'Unit Price':   rI[29] !== undefined ? rI[29] : '',
+          'Season':       rI[36] !== undefined ? rI[36] : '',
+          'SerialNumber': rI[37] !== undefined ? rI[37] : '',
+          'PalletId':     rI[42] !== undefined ? rI[42] : ''
+        });
+        totalPoRows++;
+      } else {
+        poGroups[groupName].push({
+          'Barcode': '', 'Quantity': '', 'Batch Number': 'DEF_FA1',
+          'Unit Price': '', 'Season': '', 'SerialNumber': '', 'PalletId': ''
+        });
+      }
     });
 
     // ========================================================================
     // 7. GERAÇÃO DINÂMICA DE ARQUIVOS E BOTÕES
     // ========================================================================
     setStep(7, 95); await sleep(50);
-    
-    let finalMultAoA = [headerMult];
-    validMult.forEach(r => {
-      finalMultAoA.push(r.slice(0, headerMult.length));
-    });
 
     // Validação de Contagem
-    if (totalAdiRows === 0) {
-      throw new Error('Validação falhou: Nenhuma linha válida para o arquivo ADI. Verifique o cabeçalho do Relatório Mult.');
-    }
-    if (totalPoRows !== invData.length) {
-      throw new Error('Validação falhou: Quebra do PO perdeu linhas durante o processamento.');
+    if (totalAdiRows === 0 && totalPoRows === 0) {
+      throw new Error('Validação falhou: Nenhuma linha válida foi cruzada.');
     }
 
     // Preparar UI do Grid de Downloads
     const dlGrid = document.getElementById('download-grid');
-    dlGrid.innerHTML = ''; // Limpa botões antigos
+    dlGrid.innerHTML = ''; 
 
     const createBtn = (blob, filename, icon, title, isError = false) => {
       const a = document.createElement('a');
@@ -871,7 +918,7 @@ async function processData() {
       dlGrid.appendChild(a);
     };
 
-    // 1. Mult Tratado (Único)
+    // 1. Mult Tratado (Único - Agora também ordenado pela ADICAO/LINHA)
     createBtn(writeExcelAOA(finalMultAoA, 'Relatorio_Mult_Tratado'), 'Relatorio_Mult_Tratado.xlsx', '📊', 'Mult Tratado');
 
     // 2. ADI (Multiplos)
