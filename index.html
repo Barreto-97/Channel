@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Channel — Data Engineer Tool</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  :root {
+    --navy-950: #020817;
+    --navy-900: #0a1628;
+    --navy-800: #0f2044;
+    --navy-700: #1a3260;
+    --navy-600: #1e3a8a;
+    --navy-500: #2563eb;
+    --navy-400: #3b82f6;
+    --navy-300: #93c5fd;
+    --accent:   #38bdf8;
+    --accent-glow: rgba(56,189,248,0.18);
+    --success:  #22d3a5;
+    --warn:     #fbbf24;
+    --error:    #f87171;
+    --glass:    rgba(255,255,255,0.04);
+    --glass-border: rgba(255,255,255,0.08);
+    --text-primary: #f0f6ff;
+    --text-secondary: #8ba5cc;
+    --text-muted: #4a6080;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--navy-950);
+    color: var(--text-primary);
+    font-family: 'DM Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+    position: relative;
+  }
+
+  /* ── Background mesh ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 50% at 20% 10%, rgba(30,58,138,0.4) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at 80% 80%, rgba(37,99,235,0.25) 0%, transparent 55%),
+      radial-gradient(ellipse 40% 60% at 50% 50%, rgba(56,189,248,0.05) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(56,189,248,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(56,189,248,0.03) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+  }
+
+  /* ── Header ── */
+  header {
+    text-align: center;
+    margin-bottom: 52px;
+    animation: fadeDown 0.6s ease both;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(56,189,248,0.1);
+    border: 1px solid rgba(56,189,248,0.25);
+    border-radius: 100px;
+    padding: 4px 14px;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 20px;
+  }
+  .badge::before { content: '◈'; font-size: 10px; }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: clamp(48px, 10vw, 80px);
+    line-height: 1.0;
+    letter-spacing: -0.03em;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+  }
+
+  h1 span {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--navy-300) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .subtitle {
+    font-size: 13px;
+    color: var(--text-secondary);
+    letter-spacing: 0.04em;
+  }
+
+  /* ── Card ── */
+  .card {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    padding: 32px;
+    margin-bottom: 20px;
+    backdrop-filter: blur(12px);
+    animation: fadeUp 0.5s ease both;
+  }
+  .card:nth-child(2) { animation-delay: 0.1s; }
+  .card:nth-child(3) { animation-delay: 0.2s; }
+
+  .card-label {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(56,189,248,0.3), transparent);
+  }
+
+  /* ── Drop Zone ── */
+  .drop-zone {
+    border: 1.5px dashed var(--glass-border);
+    border-radius: 14px;
+    padding: 28px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .drop-zone::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 0%, rgba(56,189,248,0.06), transparent 70%);
+    opacity: 0;
+    transition: opacity 0.25s;
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--accent);
+    background: rgba(56,189,248,0.05);
+  }
+  .drop-zone:hover::before, .drop-zone.dragover::before { opacity: 1; }
+
+  .drop-zone input[type="file"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+  }
+
+  .drop-icon {
+    font-size: 32px;
+    margin-bottom: 10px;
+    display: block;
+    filter: grayscale(0.3);
+  }
+
+  .drop-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+  }
+
+  .drop-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+  }
+
+  .file-info {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    background: rgba(34,211,165,0.08);
+    border: 1px solid rgba(34,211,165,0.2);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--success);
+  }
+  .file-info.visible { display: flex; }
+  .file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── Process Button ── */
+  .btn-process {
+    width: 100%;
+    padding: 18px;
+    background: linear-gradient(135deg, var(--navy-600) 0%, var(--navy-500) 100%);
+    border: 1px solid rgba(59,130,246,0.4);
+    border-radius: 14px;
+    color: #fff;
+    font-family: 'Syne', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 24px rgba(37,99,235,0.3);
+    margin-top: 8px;
+  }
+  .btn-process::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--navy-400) 100%);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .btn-process:hover::before { opacity: 1; }
+  .btn-process:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(56,189,248,0.35); }
+  .btn-process:active { transform: translateY(0); }
+  .btn-process span { position: relative; z-index: 1; }
+  .btn-process:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  /* ── Progress ── */
+  .progress-wrap {
+    display: none;
+    margin-top: 24px;
+  }
+  .progress-wrap.visible { display: block; }
+
+  .progress-bar-bg {
+    background: rgba(255,255,255,0.05);
+    border-radius: 100px;
+    height: 4px;
+    overflow: hidden;
+    margin-bottom: 10px;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--navy-500), var(--accent));
+    border-radius: 100px;
+    width: 0%;
+    transition: width 0.4s ease;
+    box-shadow: 0 0 12px var(--accent);
+  }
+
+  .progress-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .step {
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: color 0.3s;
+  }
+  .step.active { color: var(--text-secondary); }
+  .step.done { color: var(--success); }
+  .step .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+    transition: box-shadow 0.3s;
+  }
+  .step.active .dot { box-shadow: 0 0 0 3px rgba(56,189,248,0.25); animation: pulse 1s infinite; }
+
+  /* ── Log / Results ── */
+  .results-card {
+    display: none;
+    animation: fadeUp 0.4s ease both;
+  }
+  .results-card.visible { display: block; }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .stat {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 16px;
+    text-align: center;
+  }
+  .stat-val {
+    font-family: 'Syne', sans-serif;
+    font-size: 28px;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .stat-val.blue { color: var(--accent); }
+  .stat-val.green { color: var(--success); }
+  .stat-val.yellow { color: var(--warn); }
+  .stat-lbl { font-size: 10px; color: var(--text-muted); letter-spacing: 0.08em; text-transform: uppercase; }
+
+  .download-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+
+  .btn-download {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 18px 12px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
+    color: var(--text-primary);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+    text-decoration: none;
+  }
+  .btn-download:hover {
+    border-color: var(--accent);
+    background: rgba(56,189,248,0.07);
+    transform: translateY(-2px);
+  }
+  .btn-download .ico { font-size: 22px; }
+  .btn-download .lbl {
+    font-family: 'Syne', sans-serif;
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--accent);
+  }
+  .btn-download .sub { color: var(--text-muted); font-size: 10px; word-break: break-all; }
+
+  /* ── Error Toast ── */
+  .toast {
+    display: none;
+    position: fixed;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(248,113,113,0.12);
+    border: 1px solid rgba(248,113,113,0.35);
+    border-radius: 12px;
+    padding: 14px 22px;
+    font-size: 13px;
+    color: var(--error);
+    max-width: 480px;
+    width: 90%;
+    text-align: center;
+    z-index: 100;
+    transition: all 0.3s;
+    backdrop-filter: blur(12px);
+  }
+  .toast.visible {
+    display: block;
+    animation: toastIn 0.3s ease both;
+  }
+
+  /* ── Footer ── */
+  footer {
+    text-align: center;
+    margin-top: 60px;
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+  }
+
+  /* ── Animations ── */
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  @keyframes toastIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+
+  @media (max-width: 520px) {
+    .stat-grid, .download-grid { grid-template-columns: repeat(2, 1fr); }
+    h1 { font-size: 26px; }
+    .container { padding: 32px 16px 60px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <header>
+    <div class="badge">Engenharia de Dados</div>
+    <h1><span>Channel</span></h1>
+    <p class="subtitle">Matriz Bruta · Geração Multi-Boutique · ADI & PO Automático</p>
+  </header>
+
+  <div class="card">
+    <div class="card-label">01 — Relatório Mult</div>
+    <div class="drop-zone" id="zone-mult">
+      <input type="file" id="file-mult" accept=".xlsx,.xls,.csv">
+      <span class="drop-icon">📊</span>
+      <div class="drop-title">Arraste ou clique para selecionar</div>
+      <div class="drop-hint">Relatório Mult · Auto-detecção de Matriz e SkipRows</div>
+    </div>
+    <div class="file-info" id="info-mult">
+      <span>✓</span>
+      <span class="file-name" id="name-mult">—</span>
+    </div>
+  </div>
+
+  <div class="card" style="animation-delay:0.1s">
+    <div class="card-label">02 — Invoice Channel</div>
+    <div class="drop-zone" id="zone-invoice">
+      <input type="file" id="file-invoice" accept=".xlsx,.xls,.csv">
+      <span class="drop-icon">📋</span>
+      <div class="drop-title">Arraste ou clique para selecionar</div>
+      <div class="drop-hint">Invoice Channel · Padrão Matriz Estrita</div>
+    </div>
+    <div class="file-info" id="info-invoice">
+      <span>✓</span>
+      <span class="file-name" id="name-invoice">—</span>
+    </div>
+  </div>
+
+  <div class="card" style="animation-delay:0.2s">
+    <button class="btn-process" id="btn-process" onclick="processData()">
+      <span>⚡ Processar e Gerar Arquivos</span>
+    </button>
+
+    <div class="progress-wrap" id="progress-wrap">
+      <div class="progress-bar-bg"><div class="progress-bar-fill" id="progress-fill"></div></div>
+      <div class="progress-steps">
+        <div class="step" id="s1"><span class="dot"></span> Carregando Matrizes Brutas...</div>
+        <div class="step" id="s2"><span class="dot"></span> Identificando Cabeçalhos e Índices</div>
+        <div class="step" id="s3"><span class="dot"></span> Limpeza Estrutural e Chaves</div>
+        <div class="step" id="s4"><span class="dot"></span> Merge Pandas-like (Mult ↔ Invoice)</div>
+        <div class="step" id="s5"><span class="dot"></span> Agrupando ADI por Boutique</div>
+        <div class="step" id="s6"><span class="dot"></span> Agrupando PO por Boutique</div>
+        <div class="step" id="s7"><span class="dot"></span> Finalizando Arquivos</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card results-card" id="results-card" style="animation-delay:0s">
+    <div class="card-label">Resultados</div>
+    <div class="stat-grid">
+      <div class="stat">
+        <div class="stat-val blue" id="stat-total">—</div>
+        <div class="stat-lbl">Total Linhas</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val green" id="stat-found">—</div>
+        <div class="stat-lbl">EAN Encontrados</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val yellow" id="stat-missing">—</div>
+        <div class="stat-lbl">Não Encontrados</div>
+      </div>
+    </div>
+    <div class="download-grid" id="download-grid">
+      </div>
+  </div>
+
+  <footer>Channel · Data Engineer Tool · Client-side only · Seus dados não saem do browser</footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ─────────────────────────────────────────────
+//  State & UI Handlers
+// ─────────────────────────────────────────────
+let fileMult    = null;
+let fileInvoice = null;
+
+function setupZone(zoneId, inputId, infoId, nameId, stateSetter) {
+  const zone  = document.getElementById(zoneId);
+  const input = document.getElementById(inputId);
+  const info  = document.getElementById(infoId);
+  const nameEl= document.getElementById(nameId);
+
+  const setFile = f => {
+    stateSetter(f);
+    nameEl.textContent = f.name;
+    info.classList.add('visible');
+  };
+
+  input.addEventListener('change', e => { if (e.target.files[0]) setFile(e.target.files[0]); });
+  
+  zone.addEventListener('dragover', e => { 
+    e.preventDefault(); 
+    zone.classList.add('dragover'); 
+  });
+  
+  zone.addEventListener('dragleave', () => { 
+    zone.classList.remove('dragover'); 
+  });
+  
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    const f = e.dataTransfer.files[0];
+    if (f) { 
+      input.files = e.dataTransfer.files; 
+      setFile(f); 
+    }
+  });
+}
+
+setupZone('zone-mult',    'file-mult',    'info-mult',    'name-mult',    f => fileMult    = f);
+setupZone('zone-invoice', 'file-invoice', 'info-invoice', 'name-invoice', f => fileInvoice = f);
+
+function setStep(n, pct) {
+  for (let i = 1; i <= 7; i++) {
+    const el = document.getElementById('s' + i);
+    el.className = 'step' + (i < n ? ' done' : i === n ? ' active' : '');
+  }
+  document.getElementById('progress-fill').style.width = pct + '%';
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('visible');
+  setTimeout(() => t.classList.remove('visible'), 6000);
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+
+// ─────────────────────────────────────────────
+//  MOTOR BRUTO (AOA - Array of Arrays)
+// ─────────────────────────────────────────────
+async function readRawData(file) {
+  const name = file.name.toLowerCase();
+  return new Promise((resolve, reject) => {
+    if (name.endsWith('.csv')) {
+      Papa.parse(file, {
+        encoding: "ISO-8859-1",
+        skipEmptyLines: false, 
+        header: false,
+        complete: res => resolve(res.data),
+        error: reject
+      });
+    } else {
+      const reader = new FileReader();
+      reader.onload = e => {
+        try {
+          const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          
+          // Re-cálculo do Range Real (Ignora limite do XML para evitar falhas)
+          let minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
+          const cellKeyRe = /^([A-Z]+)(\d+)$/;
+          Object.keys(ws).forEach(key => {
+            if (key.startsWith('!')) return;
+            const m = key.match(cellKeyRe);
+            if (!m) return;
+            const col = XLSX.utils.decode_col(m[1]);
+            const row = parseInt(m[2], 10) - 1;
+            if (row < minR) minR = row;
+            if (row > maxR) maxR = row;
+            if (col < minC) minC = col;
+            if (col > maxC) maxC = col;
+          });
+
+          if (maxR !== -Infinity) {
+            ws['!ref'] = XLSX.utils.encode_range({ r: minR, c: minC }, { r: maxR, c: maxC });
+          }
+
+          const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
+          resolve(raw);
+        } catch(err) { reject(err); }
+      };
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(file);
+    }
+  });
+}
+
+function cellStr(val) {
+  if (val === null || val === undefined) return '';
+  if (val instanceof Date) return val.toISOString();
+  return String(val);
+}
+
+function cleanStr(val) {
+  return cellStr(val).toUpperCase().trim();
+}
+
+function buildKey(prod, bout, qtd) {
+  let k = cellStr(prod).toUpperCase().trim().replace(/\s/g, '').replace(/\.0+$/, '').replace(/^0+/, '').replace(/^NAN$/i, '');
+  let b = cellStr(bout).toUpperCase().trim().slice(0, 6);
+  let q = cellStr(qtd).toUpperCase().trim().replace(/\s/g, '').replace(/\.0+$/, '').replace(/^0+/, '').replace(/^NAN$/i, '');
+  return k + b + q;
+}
+
+// Remove caracteres inválidos para nomes de arquivos
+function cleanFileName(str) {
+  return cellStr(str).trim().replace(/[\\/:*?"<>|]/g, '_').toUpperCase();
+}
+
+// ─────────────────────────────────────────────
+//  Geradores de Excel / Blobs
+// ─────────────────────────────────────────────
+function writeExcel(dataAoA, sheetName = 'Dados') {
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(dataAoA);
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  return XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+}
+
+function writeExcelAOA(dataAoA, sheetName = 'Dados') {
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(dataAoA);
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  return XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+}
+
+function blobUrl(arrayBuf) { 
+  return URL.createObjectURL(new Blob([arrayBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })); 
+}
+
+function writeCSV(rows) {
+  if (!rows || rows.length === 0) return '';
+  const keys = Object.keys(rows[0]);
+  return [keys.join(','), ...rows.map(r => keys.map(k => JSON.stringify(cellStr(r[k]))).join(','))].join('\n');
+}
+
+// ─────────────────────────────────────────────
+//  Motor de Processamento Principal
+// ─────────────────────────────────────────────
+async function processData() {
+  if (!fileMult || !fileInvoice) return showToast('⚠️ Selecione ambos os arquivos antes de processar.');
+  document.getElementById('btn-process').disabled = true;
+  document.getElementById('progress-wrap').classList.add('visible');
+  document.getElementById('results-card').classList.remove('visible');
+
+  try {
+    setStep(1, 10); await sleep(50);
+    let rawMult = await readRawData(fileMult);
+    let rawInv  = await readRawData(fileInvoice);
+
+    rawMult = rawMult.map(row => Array.from({length: 50}, (_, i) => row[i] !== undefined ? row[i] : ''));
+    rawInv  = rawInv.map(row => Array.from({length: 50}, (_, i) => row[i] !== undefined ? row[i] : ''));
+
+    setStep(2, 25); await sleep(50);
+    
+    let headerIdxMult = 17; 
+    for (let i = 0; i < Math.min(rawMult.length, 30); i++) {
+      let rowStr = rawMult[i].map(cleanStr).join('|');
+      if (rowStr.includes('PRODUTO') && (rowStr.includes('AD') || rowStr.includes('ITEM'))) {
+        headerIdxMult = i; break;
+      }
+    }
+
+    let headerMult = rawMult[headerIdxMult].map(cleanStr);
+    let dataMult = rawMult.slice(headerIdxMult + 1);
+
+    const findIdx = (keywords, fallbackIndex) => {
+      let f = headerMult.findIndex(h => keywords.some(kw => h.includes(kw)));
+      return f !== -1 ? f : fallbackIndex;
+    };
+
+    let idxAd       = findIdx(['AD'], 0);
+    let idxItem     = findIdx(['ITEM'], 1);
+    let idxProduto  = findIdx(['PRODUTO', 'MATERIAL', 'CODIGO'], 2);
+    let idxBoutique = findIdx(['BOUTIQUE', 'CENTRO'], 3);
+    let idxQtde     = findIdx(['QTDE', 'QUANTIDADE'], 6);
+    let idxEan      = findIdx(['EAN', 'EANCODE', 'BARCODE'], 16);
+    let idxNcm      = findIdx(['NCM'], 7);
+    let idxUnit     = findIdx(['UNITARIO', 'FOB'], 10);
+    let idxFrete    = findIdx(['FRETE'], 11);
+    let idxSeguro   = findIdx(['SEGURO'], 12);
+    let idxTxSis    = findIdx(['TX SISCOMEX', 'SISCOMEX'], 14);
+    let idxAfrmm    = findIdx(['AFRMM'], 15);
+
+    setStep(3, 40); await sleep(50);
+
+    const termosCNPJ = ["11.662.449/0009-99.", ".11.662.449/0009-99", "11.662.449/0009-99", ". 11.662.449/0009-99"];
+    let validMult = [];
+    
+    for (let row of dataMult) {
+      let prod = cleanStr(row[idxProduto]);
+      if (!prod || prod === 'NAN' || prod.includes('RESUMO') || prod.includes('QUANTIDADE:') || prod.includes('VLR TOTAL')) continue;
+      
+      let originalProd = String(row[idxProduto] || '');
+      termosCNPJ.forEach(t => originalProd = originalProd.split(t).join(''));
+      row[idxProduto] = originalProd.trim();
+      row[idxBoutique] = String(row[idxBoutique] || '').trim().slice(0, 6);
+      validMult.push(row);
+    }
+
+    let invHeader = rawInv[0];
+    let invData = rawInv.slice(1);
+
+    setStep(4, 60); await sleep(50);
+    
+    const rankData = (dataset, keyFn) => {
+      let counts = {};
+      dataset.forEach(row => {
+        let k = keyFn(row);
+        counts[k] = counts[k] || 0;
+        row._finalKey = k + '_' + counts[k];
+        counts[k]++;
+      });
+    };
+
+    rankData(validMult, r => buildKey(r[idxProduto], r[idxBoutique], r[idxQtde]));
+    rankData(invData, r => buildKey(r[10], r[9], r[27]));
+
+    let lookupInv = {};
+    invData.forEach(r => { lookupInv[r._finalKey] = r[23]; });
+
+    let missingRows = [];
+    let foundCount = 0;
+
+    validMult.forEach(row => {
+      let barcode = lookupInv[row._finalKey];
+      let currentEan = cleanStr(row[idxEan]);
+      if (!currentEan || currentEan === 'NAN') {
+        if (barcode !== undefined && barcode !== '') {
+          row[idxEan] = barcode;
+          foundCount++;
+        } else {
+          missingRows.push({ ITEM: row[idxItem], PRODUTO: row[idxProduto], Chave: row._finalKey });
+        }
+      } else {
+        foundCount++;
+      }
+    });
+
+    // ========================================================================
+    // 5. AGRUPAMENTO DO ADI POR BOUTIQUE (Coluna G do Mult Original -> índice idxBoutique)
+    // ========================================================================
+    setStep(5, 75); await sleep(50);
+    
+    let adiGroups = {};
+    let totalAdiRows = 0;
+
+    validMult.forEach(r => {
+      const boutiqueRealName = cleanFileName(r[idxBoutique]);
+      const groupName = boutiqueRealName || 'GERAL'; // Fallback se estiver vazio
+
+      if (!adiGroups[groupName]) {
+        adiGroups[groupName] = [];
+      }
+
+      adiGroups[groupName].push({
+        'ADICAO':      r[idxAd], 
+        'LINHA':       r[idxItem], 
+        'CODIGO':      r[idxProduto], 
+        'NCM':         r[idxNcm], 
+        'QTDE':        r[idxQtde], 
+        'FOB':         r[idxUnit], 
+        'FRETE':       r[idxFrete], 
+        'SEGURO':      r[idxSeguro], 
+        'TX SISCOMEX': r[idxTxSis], 
+        'AFRMM':       r[idxAfrmm], 
+        'CAPATAZIA':   0.00, 
+        'TAXA':        1.00
+      });
+      totalAdiRows++;
+    });
+
+    // ========================================================================
+    // 6. AGRUPAMENTO DO PO POR BOUTIQUE (Coluna J da Invoice -> índice 9)
+    // ========================================================================
+    setStep(6, 85); await sleep(50);
+    
+    let poGroups = {};
+    let totalPoRows = 0;
+
+    invData.forEach(r => {
+      const boutiqueRealName = cleanFileName(r[9]);
+      const groupName = boutiqueRealName || 'GERAL'; 
+
+      if (!poGroups[groupName]) {
+        poGroups[groupName] = [];
+      }
+
+      poGroups[groupName].push({
+        'Barcode':      r[23] || '',
+        'Quantity':     r[27] || '',
+        'Batch Number': 'DEF_FA1',
+        'Unit Price':   r[29] || '',
+        'Season':       r[36] || '',
+        'SerialNumber': r[37] || '',
+        'PalletId':     r[42] || ''
+      });
+      totalPoRows++;
+    });
+
+    // ========================================================================
+    // 7. GERAÇÃO DINÂMICA DE ARQUIVOS E BOTÕES
+    // ========================================================================
+    setStep(7, 95); await sleep(50);
+    
+    let finalMultAoA = [headerMult];
+    validMult.forEach(r => {
+      finalMultAoA.push(r.slice(0, headerMult.length));
+    });
+
+    // Validação de Contagem
+    if (totalAdiRows === 0) {
+      throw new Error('Validação falhou: Nenhuma linha válida para o arquivo ADI. Verifique o cabeçalho do Relatório Mult.');
+    }
+    if (totalPoRows !== invData.length) {
+      throw new Error('Validação falhou: Quebra do PO perdeu linhas durante o processamento.');
+    }
+
+    // Preparar UI do Grid de Downloads
+    const dlGrid = document.getElementById('download-grid');
+    dlGrid.innerHTML = ''; // Limpa botões antigos
+
+    const createBtn = (blob, filename, icon, title, isError = false) => {
+      const a = document.createElement('a');
+      a.className = 'btn-download';
+      a.href = blobUrl(blob);
+      a.download = filename;
+      if (isError) a.style.borderColor = 'rgba(248,113,113,0.3)';
+      a.innerHTML = `<span class="ico">${icon}</span><span class="lbl" ${isError ? 'style="color:var(--error)"' : ''}>${title}</span><span class="sub">${filename}</span>`;
+      dlGrid.appendChild(a);
+    };
+
+    // 1. Mult Tratado (Único)
+    createBtn(writeExcelAOA(finalMultAoA, 'Relatorio_Mult_Tratado'), 'Relatorio_Mult_Tratado.xlsx', '📊', 'Mult Tratado');
+
+    // 2. ADI (Multiplos)
+    Object.entries(adiGroups).forEach(([boutiqueName, rows]) => {
+      const filename = `Arquivo_ADI_${boutiqueName}.xlsx`;
+      createBtn(writeExcel(rows, 'ADI'), filename, '📦', `ADI - ${boutiqueName}`);
+    });
+
+    // 3. PO (Multiplos)
+    Object.entries(poGroups).forEach(([boutiqueName, rows]) => {
+      const filename = `Arquivo_PO_${boutiqueName}.xlsx`;
+      createBtn(writeExcel(rows, 'PO'), filename, '📄', `PO - ${boutiqueName}`);
+    });
+
+    // 4. Log de Erros
+    if (missingRows.length > 0) {
+      const csvBlob = new Blob([writeCSV(missingRows)], { type: 'text/csv' });
+      createBtn(csvBlob, 'log_nao_encontrados.csv', '⚠️', 'Log de Erros', true);
+    }
+
+    // Preenche as Estatísticas Visuais
+    document.getElementById('stat-total').textContent = validMult.length;
+    document.getElementById('stat-found').textContent = foundCount;
+    document.getElementById('stat-missing').textContent = missingRows.length;
+
+    setStep(8, 100); await sleep(100);
+    document.getElementById('results-card').classList.add('visible');
+    document.getElementById('results-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  } catch(err) {
+    console.error(err);
+    showToast('❌ Erro: ' + err.message);
+  } finally {
+    document.getElementById('btn-process').disabled = false;
+  }
+}
+</script>
+</body>
+</html>
