@@ -860,17 +860,17 @@ async function processData() {
           'FOB':         rM[idxUnit], 
           'FRETE':       rM[idxFrete], 
           'SEGURO':      rM[idxSeguro], 
+          'CAPATAZIA':   0.00, 
           'TX SISCOMEX': rM[idxTxSis], 
           'AFRMM':       rM[idxAfrmm], 
-          'CAPATAZIA':   0.00, 
           'TAXA':        1.00
         });
         totalAdiRows++;
       } else {
         adiGroups[groupName].push({
           'ADICAO': '', 'LINHA': '', 'CODIGO': '', 'NCM': '', 'QTDE': '',
-          'FOB': '', 'FRETE': '', 'SEGURO': '', 'TX SISCOMEX': '', 'AFRMM': '',
-          'CAPATAZIA': '', 'TAXA': ''
+          'FOB': '', 'FRETE': '', 'SEGURO': '', 'CAPATAZIA': '', 'TX SISCOMEX': '', 'AFRMM': '',
+          'TAXA': ''
         });
       }
 
